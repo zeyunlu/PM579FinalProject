@@ -19,5 +19,8 @@ colnames(b)
 df <- apply(b, 2, as.character)
 df <- as.data.frame(df)
 
-write_csv(df, path = "data/final.csv", quote_escape = FALSE)
+save(df, file = "final.rdata")
+write_tsv(df, path = "data/final.tsv", quote_escape = FALSE)
 
+
+haah <- read_csv("data/final.csv",col_types = NULL)
