@@ -3,19 +3,19 @@ library(randomForest)
 library(e1071)
 
 load("E:/PM579_hw/PM579FinalProject/data/final.rdata")
+load("C:/Users/Dong/Desktop/PM579FinalProject/data/final.rdata")
 
 #separate data
 set.seed(666)
-train_id = sample(nrow(dat),54)
+train_id = sample(nrow(dat),50)
 dat = mutate(dat,cancer = as.factor(cancer))
-dat_tree = dat[,-1]
-train = dat_tree[train_id,]
-test = dat_tree[-train_id,]
+dat_model = dat[,-1]
+train = dat_model[train_id,]
+test = dat_model[-train_id,]
 
 #random Forest
-
-rf = randomForest(cancer~. ,data = dat_tree,subset = train_id,importance = TRUE)
-importance(rf)
+rf = randomForest(cancer~. ,data = dat_model,subset = train_id,importance = TRUE)
+imp = importance(rf,class = cancer)
 varImpPlot(rf)
 
 yhat_rf = predict(rf,newdata = test)
