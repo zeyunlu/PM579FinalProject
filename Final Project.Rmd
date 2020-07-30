@@ -9,22 +9,108 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
-
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
+```{r}
+library(tidyverse)
+library(glmnet)
 ```
 
-## Including Plots
+```{r}
+# dta1 = read_csv("data/data_set_ALL_AML_independent.csv")
+# dta2 = read_csv("data/data_set_ALL_AML_train.csv")
+# alldta = left_join(dta1, dta2, by = c("Gene Description", "Gene Accession Number"))
+# dropcol <- which(!grepl("call", colnames(alldta)))
+# dta <- alldta[dropcol]
+# 
+# set.seed(1)
+# trn = sample(3:(ncol(dta) - 2), ceiling(0.7*(ncol(dta) - 2)))
+# train = dta[,c(1:2,trn)]
+# test = dta[,-trn]
+# 
+# write_csv(dta,"data/whole.csv", quote_escape = FALSE)
+# write_csv(train, "data/train.csv",quote_escape = F)
+# write_csv(test,"data/test.csv",quote_escape = F)
 
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+## Methods
+The whole dataset will be split into training with 50 patients and validation datasets with 12 patients.Psedo-random seed is set for the purpose of reproducibility. The following prediction methods will be applied on the training dataset and the models' performance will be evluated on the validation dataset: elastic net, SVM and random forest. 
+
+We are planning to use elastic net to conduct a prediction model for the cancer outcome. Since the outcome is binary variable for two types of cancer, penalized logistic regression model is constructed. Lambda is a regularization parameter and the regularization path is computed for the elastic net penalty at a grid of values for lambda. The parameter lambda controls the overall strength of the penalty. Alpha is the proportion between the square of coefficients and the absolute value of the coefficients, which is another parameter that can vary in the model. 10-fold cross-validation will performed on the standarized training dataset with alpha from 0,0.1,0.2 ... 0,9,1, using misclassification error as the criterion for model performance. The lambda we used from each model is the one gives that error is within one standard error of the minimum mean cross-validated error. The alpha with the lowest corresponding mean misclassification error on the training dataset is selected. And the model performance is checked on the validation dataset using prediction accuracy. 
+
+##Result
+After generated the models with varying alpha values, found that the mean misclassification error on the training dataset is 0.02 when alpha = 0 and 0.08 when alpha = 1. But all other alphas give 0 error rate, so the performance of alpha = 1 and alpha = 0, which are also called ridge and LASSO regression, is inferior than other models. Also, since the error rate is 0, there will be no standard error from the minimum mean cross-validated error. The lambda we picked is also the one gives minimum error rate. Since all other models have the same performance under our evaluation criteria, we will pick alpha = 0.1 arbitrarily. 
+Each curve in the first plot visualizes the corresponding coefficients to each gene and coefficients for those non-significance genes will be shrunk to zero.The second plot is for the cross-validation error curves for the choosen model as the change of log(lambda). The dotted line located at the lambda we selected.
+When checking the model perforamce on validation dataset, the elastic net model with alpha = 0.1 correctly classifis 6 patients with ALL and 13 patients with 13. Out of the 20 patients, 3 are misclassified and the prediction accuracy is 86.36%.
+Among those 500 genes, 92 genes have non-zero coefficients and the gene 6855,3684 and 5361 are those with highest coefficients. Those genes are theoretically most important gene in predicting the type of cancer.
+
+```{r elastic net}
+load("data/final.rdata")
+
+dat1 = dat500 %>% mutate(y = as.factor(cancer)) %>% select(-c(1:2))%>% data.matrix
+
+#glmnet prefer data.matrix as for as.matrix
+x = dat1[,-ncol(dat1)]
+y = dat1[,ncol(dat1)]
+  
+set.seed(666)
+train_rows <- sample(1:nrow(dat1), 50)
+x.train <- x[train_rows, ]
+x.test <- x[-train_rows, ]
+
+y.train <- y[train_rows]
+y.test <- y[-train_rows]
+
+col1 = vector()
+
+for (i in 0:10) {
+    temp =  cv.glmnet(x.train, y.train, type.measure = "class",
+                                              alpha=i/10,family="binomial")
+
+    err.min <- temp$cvm[temp$lambda == temp$lambda.1se]
+
+    col1[i+1] = err.min
+
+}
+
+col2= seq(0,1,0.1)
+errout = cbind(col1,col2)
+    
+which.min(errout[,1])
+#picked the corresponding alpha and lambda lowest mis-classification error at 1se
+
+fit.elnet <- glmnet(x.train, y.train, family="binomial", alpha=.1)
+plot(fit.elnet, xvar="lambda")
+fit1 = cv.glmnet(x.train, y.train, type.measure = "class",
+                                              alpha=0.1,family="binomial")
+plot(fit1, main="Elastic Net")
+
+yhat <- predict(fit1, s=fit1$lambda.1se,type = "class", newx = x.test) %>% 
+  as.factor
+
+table(yhat, y.test)
+
+3/22
+
+
+coef(fit1, s="lambda.min")[which(coef(fit1, s="lambda.min") != 0)]
+myCoefs <- coef(fit1, s="lambda.min");
+myCoefs[which(myCoefs != 0 ) ]               #coefficients: intercept included
+## [1]  1.4945869 -0.6907010 -0.7578129 -1.1451275 -0.7494350 -0.3418030 -0.8012926 -0.6597648 -0.5555719
+## [10] -1.1269725 -0.4375461
+myCoefs@Dimnames[[1]][which(myCoefs != 0 ) ] #feature names: intercept included
+## [1] "(Intercept)" "feature1"    "feature2"    "feature3"    "feature4"    "feature5"    "feature6"   
+## [8] "feature7"    "feature8"    "feature9"    "feature10"  
+
+## Asseble into a data.frame
+myResults <- data.frame(
+  features = myCoefs@Dimnames[[1]][ which(myCoefs != 0 ) ], #intercept included
+  coefs    = myCoefs              [ which(myCoefs != 0 ) ]  #intercept included
+)
+myResults
+
+pp = myResults[order(myResults$coefs,decreasing = T),]
+
+```
+
+Reference: https://cran.r-project.org/web/packages/glmnet/vignettes/glmnet.pdf
